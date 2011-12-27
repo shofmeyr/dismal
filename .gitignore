@@ -1,0 +1,5 @@
+*.o
+TAGS
+updates.dat
+dismal
+cscope*
