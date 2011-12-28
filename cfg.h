@@ -14,6 +14,7 @@ typedef struct {
 #define VFLAG_PC_LISTS 4
 #define VFLAG_CONSUME 8
 #define VFLAG_CONSUME_DETAILS 16
+#define VFLAG_STATS 32
 
 static const verbose_flag_t VERBOSE_FLAGS[] = {
     {.index = VFLAG_TIMERS, .flag = 'T', .name = "timers"},
@@ -21,6 +22,7 @@ static const verbose_flag_t VERBOSE_FLAGS[] = {
     {.index = VFLAG_PC_LISTS, .flag = 'L', .name = "prdr csmr lists"},
     {.index = VFLAG_CONSUME, .flag = 'C', .name = "consume"},
     {.index = VFLAG_CONSUME_DETAILS, .flag = 'D', .name = "consume details"},
+    {.index = VFLAG_STATS, .flag = 'S', .name = "show stats every iter"},
 };
 
 #define DBG(FLAG, fmt, ...)                                             \

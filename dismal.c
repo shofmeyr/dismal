@@ -144,6 +144,8 @@ void print_array(char* label, int* array, int num) {
     printf("\n");
 }
 
+CREATE_TIMER(MAIN_TIMER);
+
 int main(int argc, char** argv) {
     printf("DISMAL ECONOMIC MODEL (Version %.2f) compiled %s\n", 
            EMPLOY_VERSION, __DATE__);
@@ -153,15 +155,16 @@ int main(int argc, char** argv) {
 
     init();
 
-    mprintf(14, "%4s", "t", 
+    mprintf(14, "%8s", "t", 
             "%7s", "av $", "%7s", "mx $", "%7s", "mn $", 
             //            "%7s", "av C", "%7s", "mx C", "%7s", "mn C", 
             //            "%7s", "av P", "%7s", "mx P", "%7s", "mn P", 
             "%7s", "av PP", "%7s", "mx PP", "%7s", "mn PP",
             "%7s", "av C", "%7s", "mx C", "%7s", "mn C", 
             "%7s", "av P", "%7s", "mx P", "%7s", "mn P", 
-            "%7s", "% pvt\n");
+            "%7s", "pvt\n");
 
+    timer_start(MAIN_TIMER);
     for (_iters = 0; _iters < _cfg.num_iters; _iters++) {
         _prdrs.num = 0;
         _csmrs.num = 0;
@@ -186,9 +189,12 @@ int main(int argc, char** argv) {
             printf("\n");
         }
 
-        // compute and print out statistics
-        compute_stats(_iters);
+        DBG_START(VFLAG_STATS) {
+            // compute and print out statistics
+            compute_stats(_iters);
+        }
     }
+    compute_stats(_iters);
     
     fclose(_update_file);
 }
@@ -239,7 +245,7 @@ void update_ag(ag_t* ag) {
 void compute_price(ag_t* ag) {
     // work out price for this producer based on previously expended production
     double price_change = (ag->exptd_prod - ag->prod) / ag->max_prod;
-    ag->prod_price *= ((_cfg.price_adjust + price_change) / _cfg.price_adjust);
+    ag->prod_price += (_cfg.price_adjust * price_change);
     // no agent will drop the price too low
     if (ag->prod_price < _cfg.min_prod_price) {
         ag->prod_price = _cfg.min_prod_price;
@@ -380,7 +386,7 @@ void compute_stats(int t) {
     av_tot_csmp /= (double)_ags.num;
     av_tot_prod /= (double)_ags.num;
 
-    mprintf(14, "%4d", t, 
+    mprintf(14, "%8d", t, 
             "%7.2f", av_money, "%7.2f", max_money, "%7.2f", min_money,
             //            "%7.2f", av_csmp, "%7.2f", max_csmp, "%7.2f", min_csmp, 
             //            "%7.2f", av_prod, "%7.2f", max_prod, "%7.2f", min_prod, 

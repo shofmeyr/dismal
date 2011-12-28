@@ -57,7 +57,7 @@ void load_cfg(int argc, char** argv, cfg_t* cfg) {
     cfg->av_max_prod = 2;
     cfg->av_exptd_prod = 1;
     cfg->min_prod_price = 0.2;
-    cfg->price_adjust = 10;
+    cfg->price_adjust = 0.1;
     cfg->prdr_sample_size = 10;
     cfg->verbose_flags = 0;
     char verbose_str[5000] = "";
