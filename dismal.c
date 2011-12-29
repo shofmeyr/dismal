@@ -195,6 +195,8 @@ int main(int argc, char** argv) {
         }
     }
     compute_stats(_iters);
+	timer_stop(MAIN_TIMER);
+	printf("Time taken %.2f\n", timer_read(MAIN_TIMER));
     
     fclose(_update_file);
 }
