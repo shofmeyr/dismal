@@ -5,6 +5,7 @@
 #include "cfg.h"
 
 static struct option lopts[] = {
+    {"rseed", 1, 0, 'd'},
     {"num_iters", 1, 0, 'i'},
     {"num_ags", 1, 0, 'n'},
     {"av_money_start", 1, 0, 'm'},
@@ -23,6 +24,7 @@ static struct option lopts[] = {
 
 
 const char* opts_help[] = {
+	"random seed",
     "number of iterations",
     "number of agents",
     "starting money",
@@ -48,6 +50,7 @@ void load_cfg(int argc, char** argv, cfg_t* cfg) {
     }
     // set defaults
     // these are set to give reasonable outputs
+	cfg->rseed = 31;
     cfg->num_iters = 1000;
     cfg->num_ags = 100;
     cfg->av_money_start = 5;
@@ -73,6 +76,7 @@ void load_cfg(int argc, char** argv, cfg_t* cfg) {
         opt = getopt_long(argc, argv, optstr, lopts, &option_index);
         if (opt == -1) break;
         switch (opt) {
+        case 'd': cfg->rseed = atoi(optarg); break;
         case 'i': cfg->num_iters = atoi(optarg); break;
         case 'n': cfg->num_ags = atoi(optarg); break;
         case 'm': cfg->av_money_start = atof(optarg); break;
@@ -129,6 +133,7 @@ void load_cfg(int argc, char** argv, cfg_t* cfg) {
 
 void print_cfg(cfg_t* cfg, char comment, FILE* f) {
     int i = 0;
+	PRINT_INT_OPT(cfg->rseed);
     PRINT_INT_OPT(cfg->num_iters);
     PRINT_INT_OPT(cfg->num_ags);
     PRINT_DOUBLE_OPT(cfg->av_money_start);

@@ -35,6 +35,7 @@ static const verbose_flag_t VERBOSE_FLAGS[] = {
 #define DBG_START(FLAG) if (_cfg.verbose_flags & FLAG) 
 
 typedef struct {
+	int rseed;
     int num_iters;
     int num_ags;
     double av_money_start;

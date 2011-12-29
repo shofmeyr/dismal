@@ -202,6 +202,8 @@ int main(int argc, char** argv) {
 }
 
 void init() {
+	init_rnd(_cfg.rseed);
+
     _ags.num = _cfg.num_ags;
     _ags._ = calloc(_cfg.num_ags, sizeof(ag_t));
     _prdrs._ = calloc(_cfg.num_ags, sizeof(int));
