@@ -1,6 +1,7 @@
 #ifndef _CFG_H
 #define _CFG_H
 
+
 #include <stdio.h>
 
 typedef struct {
