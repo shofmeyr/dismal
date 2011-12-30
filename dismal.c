@@ -87,22 +87,23 @@
 static FILE* _update_file;
 static cfg_t _cfg;
 
+// units of production and consumption are integers because they cannot be
+// divided too finely 
 typedef struct {
     int id;
     // these are all fixed for the life of the agent 
     double svgs_level;
-    double min_csmp;
-    double max_csmp;
-    double exptd_prod;
-    double max_prod;
+    int max_csmp;
+    int exptd_prod;
+    int max_prod;
     // these fluctuate from one round to the next
     double money;
-    double prod;
-    double csmp;
+    int prod;
+    int csmp;
     // total consumption over this agent's lifetime
-    double tot_csmp;
+    long tot_csmp;
     // total production over the lifetime of this agent
-    double tot_prod;
+    long tot_prod;
     double prod_price;
     double last_price_paid;
 } ag_t;
@@ -126,13 +127,16 @@ static int _iters = 0;
 
 #define AG_PTR(ag_i) get_ag_ptr(ag_i, __LINE__)
 
+#define SHOW_ROUND 0
+#define SHOW_LIFETIME 1
+
 ag_t* get_ag_ptr(int ag_i, int line_num);
 void init();
 void update_ag(ag_t* ag);
 void compute_price(ag_t* ag);
 int find_cheapest_prdr(int csmr_i);
 void consume(int csmr_i, int prdr_i);
-void compute_stats(int t);
+void compute_stats(int t, int show_what);
 void print_ags(void);
 void print_ag(ag_t* ag);
 
@@ -164,6 +168,8 @@ int main(int argc, char** argv) {
             "%7s", "av P", "%7s", "mx P", "%7s", "mn P", 
             "%7s", "pvt\n");
 
+	int iter_step = _cfg.num_iters / 50;
+
     timer_start(MAIN_TIMER);
     for (_iters = 0; _iters < _cfg.num_iters; _iters++) {
         _prdrs.num = 0;
@@ -178,7 +184,8 @@ int main(int argc, char** argv) {
             // a randomly selected consumer consumes what is produced by the
             // cheapest producer in a sample
             int csmr_i = get_int_rnd(_csmrs.num);
-            consume(csmr_i, find_cheapest_prdr(csmr_i));
+			int prdr_i = find_cheapest_prdr(csmr_i);
+			if (prdr_i != -1) consume(csmr_i, prdr_i);
         }
 
         // compute new prices
@@ -191,13 +198,13 @@ int main(int argc, char** argv) {
 
         DBG_START(VFLAG_STATS) {
             // compute and print out statistics
-            compute_stats(_iters);
+            if (_iters % iter_step == 0) compute_stats(_iters + 1, SHOW_ROUND);
         }
     }
-    compute_stats(_iters);
+    compute_stats(_iters, SHOW_LIFETIME);
 	timer_stop(MAIN_TIMER);
 	printf("Time taken %.2f\n", timer_read(MAIN_TIMER));
-    
+
     fclose(_update_file);
 }
 
@@ -216,14 +223,15 @@ void init() {
         // have them all the same. We could randomly vary them too.
         ag->money = _cfg.av_money_start;
         ag->svgs_level = _cfg.av_svgs_level;
-        ag->min_csmp = _cfg.av_min_csmp;
         ag->max_csmp = _cfg.av_max_csmp;
         ag->exptd_prod = _cfg.av_exptd_prod;
         ag->max_prod = _cfg.av_max_prod;
         ag->prod = ag->exptd_prod;
         ag->tot_prod = 0;
         ag->tot_csmp = 0;
-        ag->prod_price = _cfg.av_min_csmp / _cfg.av_max_prod;
+		ag->prod_price = (double)_cfg.min_csmp / (double)_cfg.av_max_prod;
+		// start with enough money to buy the minimum consumption * 10
+		//		ag->money = ag->prod_price * 10.0;
         // assume this starts off as the global average
         ag->last_price_paid = ag->prod_price;
     }
@@ -237,7 +245,7 @@ void update_ag(ag_t* ag) {
     // An agent is a producer if it doesn't have enough money beyond svgs_level
     // to buy its max_csmp. To work this out, it uses the price it last
     // paid for csmp (i.e. in the previous iteration)
-    if (ag->money - ag->svgs_level < ag->last_price_paid * ag->max_csmp) {
+    if (ag->money - ag->svgs_level < ag->last_price_paid * (double)ag->max_csmp) {
         _prdrs._[_prdrs.num++] = ag->id;
         // reset production for the new round to the max 
         ag->prod = ag->max_prod;
@@ -248,8 +256,10 @@ void update_ag(ag_t* ag) {
 
 void compute_price(ag_t* ag) {
     // work out price for this producer based on previously expended production
-    double price_change = (ag->exptd_prod - ag->prod) / ag->max_prod;
-    ag->prod_price += (_cfg.price_adjust * price_change);
+    double price_change = ((double)ag->exptd_prod - (double)ag->prod) / 
+		(double)ag->max_prod;
+	//    ag->prod_price += (_cfg.price_adjust * price_change);
+	ag->prod_price *= (1.0 + _cfg.price_adjust * price_change);
     // no agent will drop the price too low
     if (ag->prod_price < _cfg.min_prod_price) {
         ag->prod_price = _cfg.min_prod_price;
@@ -285,15 +295,16 @@ void consume(int csmr_i, int prdr_i) {
     // can't cosume your own production
     if (csmr->id == prdr->id) return;
 
-    DBG(VFLAG_CONSUME_DETAILS, "csmr->id %d, csmr->money %.2f, csmr->csmp %.2f, "
-        "prdr->id %d, prdr->prod %.2f\n",
+    DBG(VFLAG_CONSUME_DETAILS, "csmr->id %d, csmr->money %.2f, csmr->csmp %d, "
+        "prdr->id %d, prdr->prod %d\n",
         csmr->id, csmr->money, csmr->csmp, prdr->id, prdr->prod);
 
-
     double csmr_money_avail = csmr->money;
-    double min_csmp = csmr->min_csmp - csmr->csmp;
+    int min_csmp = _cfg.min_csmp - csmr->csmp;
+	// this could happen if we have already consumed
+	if (min_csmp < 0) min_csmp = 0;
     // always try to consume the min
-    double min_spend = min_csmp * prdr->prod_price;
+    double min_spend = (double)min_csmp * prdr->prod_price;
     if (csmr_money_avail > min_spend) {
         // always spend at least the min
         csmr_money_avail = min_spend;
@@ -306,17 +317,24 @@ void consume(int csmr_i, int prdr_i) {
                      csmr_money_avail, min_spend);
             }
             // a consumer will not consume more than the max
-            double max_spend = csmr->max_csmp * prdr->prod_price;
+            double max_spend = (double)csmr->max_csmp * prdr->prod_price;
             if (csmr_money_avail > max_spend) csmr_money_avail = max_spend;
         }
     }
+
+	// not enough money to buy at least one unit, remove from consumers list
+	if (csmr_money_avail < prdr->prod_price) {
+        _csmrs._[csmr_i] = _csmrs._[--_csmrs.num];
+		return;
+	}
+
     // now with the money avail, buy the max production avail
-    double prod_buy = csmr_money_avail / prdr->prod_price;
+    int prod_buy = csmr_money_avail / prdr->prod_price;
     if (prod_buy > prdr->prod) prod_buy = prdr->prod;
-    double money_paid = prod_buy * prdr->prod_price;
+    double money_paid = (double)prod_buy * prdr->prod_price;
 
     DBG(VFLAG_CONSUME_DETAILS, "min_spend %.2f, prdr price %.2f, avail money %.2f, "
-        "prod_buy %.2f, money_paid %.2f\n", 
+        "prod_buy %d, money_paid %.2f\n", 
         min_spend, prdr->prod_price, csmr_money_avail, prod_buy, money_paid);
 
     prdr->prod -= prod_buy;
@@ -331,15 +349,15 @@ void consume(int csmr_i, int prdr_i) {
         _prdrs._[prdr_i] = _prdrs._[--_prdrs.num];
     }
     if (csmr->csmp >= csmr->max_csmp || csmr->money == 0 || 
-        (csmr->csmp >= csmr->min_csmp && csmr->money <= csmr->svgs_level)) {
+        (csmr->csmp >= _cfg.min_csmp && csmr->money <= csmr->svgs_level)) {
         // remove from list of consumers
         _csmrs._[csmr_i] = _csmrs._[--_csmrs.num];
     }
     
-    DBG(VFLAG_CONSUME_DETAILS, "csmr money %.2f, csmr csmp %.2f, prdr prod %.2f\n",
+    DBG(VFLAG_CONSUME_DETAILS, "csmr money %.2f, csmr csmp %d, prdr prod %d\n",
         csmr->money, csmr->csmp, prdr->prod);
 
-    DBG(VFLAG_CONSUME, "csmr %d, prdr %d, units %.2f, price %.2f\n", 
+    DBG(VFLAG_CONSUME, "csmr %d, prdr %d, units %d, price %.2f\n", 
         csmr->id, prdr->id, prod_buy, money_paid);
 }
 
@@ -349,7 +367,7 @@ void set_av_max_min(double val, double *av, double *mx, double *mn) {
     if (*mx < val) *mx = val;
 }
 
-void compute_stats(int t) {
+void compute_stats(int t, int show_what) {
     double av_money = 0;
     double min_money = 1e9;
     double max_money = 0;
@@ -376,11 +394,11 @@ void compute_stats(int t) {
         set_av_max_min(ag->csmp, &av_csmp, &max_csmp, &min_csmp);
         set_av_max_min(ag->prod, &av_prod, &max_prod, &min_prod);
         set_av_max_min(ag->last_price_paid, &av_price, &max_price, &min_price);
-        set_av_max_min(ag->tot_csmp / (t + 1), &av_tot_csmp, 
+        set_av_max_min((double)ag->tot_csmp / t, &av_tot_csmp, 
                        &av_max_csmp, &av_min_csmp);
-        set_av_max_min(ag->tot_prod / (t + 1), &av_tot_prod, 
+        set_av_max_min((double)ag->tot_prod / t, &av_tot_prod, 
                        &av_max_prod, &av_min_prod);
-        if (ag->csmp < ag->min_csmp) num_in_poverty++;
+        if (ag->csmp < _cfg.min_csmp) num_in_poverty++;
     }
 
     av_money /= (double)_ags.num;
@@ -390,14 +408,22 @@ void compute_stats(int t) {
     av_tot_csmp /= (double)_ags.num;
     av_tot_prod /= (double)_ags.num;
 
-    mprintf(14, "%8d", t, 
-            "%7.2f", av_money, "%7.2f", max_money, "%7.2f", min_money,
-            //            "%7.2f", av_csmp, "%7.2f", max_csmp, "%7.2f", min_csmp, 
-            //            "%7.2f", av_prod, "%7.2f", max_prod, "%7.2f", min_prod, 
-            "%7.2f", av_price, "%7.2f", max_price, "%7.2f", min_price,
-            "%7.2f", av_tot_csmp, "%7.2f", av_max_csmp, "%7.2f", av_min_csmp, 
-            "%7.2f", av_tot_prod, "%7.2f", av_max_prod, "%7.2f", av_min_prod, 
-            "%7.1f\n", (double)num_in_poverty * 100.0 / (double)_ags.num);
+	if (show_what == SHOW_LIFETIME) {
+		printf(" LIFETIME\n");
+		mprintf(14, "%8d", t, 
+				"%7.2f", av_money, "%7.2f", max_money, "%7.2f", min_money,
+				"%7.2f", av_price, "%7.2f", max_price, "%7.2f", min_price,
+				"%7.2f", av_tot_csmp, "%7.2f", av_max_csmp, "%7.2f", av_min_csmp, 
+				"%7.2f", av_tot_prod, "%7.2f", av_max_prod, "%7.2f", av_min_prod, 
+				"%7.1f\n", (double)num_in_poverty * 100.0 / (double)_ags.num);
+	} else {
+		mprintf(14, "%8d", t, 
+				"%7.2f", av_money, "%7.2f", max_money, "%7.2f", min_money,
+				"%7.2f", av_price, "%7.2f", max_price, "%7.2f", min_price,
+				"%7.2f", av_csmp, "%7.2f", max_csmp, "%7.2f", min_csmp, 
+				"%7.2f", av_prod, "%7.2f", max_prod, "%7.2f", min_prod, 
+				"%7.1f\n", (double)num_in_poverty * 100.0 / (double)_ags.num);
+	}
 }
 
 ag_t* get_ag_ptr(int ag_i, int line_num) {
@@ -414,7 +440,7 @@ void print_ags(void) {
 }
 
 void print_ag(ag_t* ag) {
-    mprintf(8, "%4d", ag->id, "%8.2f", ag->money, "%8.2f", ag->prod, "%8.2f", 
+    mprintf(8, "%4d", ag->id, "%8.2f", ag->money, "%8d", ag->prod, "%8d", 
             ag->csmp, "%8.2f", ag->prod_price, "%8.2f", ag->last_price_paid,
             "%8.2f", ag->tot_csmp / (_iters + 1), 
             "%8.2f\n", ag->tot_prod / (_iters + 1));
