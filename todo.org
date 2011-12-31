@@ -1,0 +1,4 @@
+* Distributions of params
+- for each agent, instead of having its params be fixed and equal to the
+  configuration params, make them random with average equal to the cfg param. 
+- agents with savings lend to other agents at some interest rate.

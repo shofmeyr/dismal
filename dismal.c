@@ -161,8 +161,6 @@ int main(int argc, char** argv) {
 
     mprintf(14, "%8s", "t", 
             "%7s", "av $", "%7s", "mx $", "%7s", "mn $", 
-            //            "%7s", "av C", "%7s", "mx C", "%7s", "mn C", 
-            //            "%7s", "av P", "%7s", "mx P", "%7s", "mn P", 
             "%7s", "av PP", "%7s", "mx PP", "%7s", "mn PP",
             "%7s", "av C", "%7s", "mx C", "%7s", "mn C", 
             "%7s", "av P", "%7s", "mx P", "%7s", "mn P", 
@@ -224,12 +222,13 @@ void init() {
         ag->money = _cfg.av_money_start;
         ag->svgs_level = _cfg.av_svgs_level;
         ag->max_csmp = _cfg.av_max_csmp;
-        ag->exptd_prod = _cfg.av_exptd_prod;
+		ag->exptd_prod = _cfg.av_exptd_prod;
         ag->max_prod = _cfg.av_max_prod;
         ag->prod = ag->exptd_prod;
         ag->tot_prod = 0;
         ag->tot_csmp = 0;
-		ag->prod_price = (double)_cfg.min_csmp / (double)_cfg.av_max_prod;
+		// start off by charging what we believe to be the minimum
+		ag->prod_price = _cfg.min_prod_price;
 		// start with enough money to buy the minimum consumption * 10
 		//		ag->money = ag->prod_price * 10.0;
         // assume this starts off as the global average
