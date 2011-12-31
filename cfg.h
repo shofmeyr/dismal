@@ -40,10 +40,10 @@ typedef struct {
     int num_ags;
     double av_money_start;
     double av_svgs_level;
-    double av_min_csmp;
-    double av_max_csmp;
-    double av_max_prod;
-    double av_exptd_prod;
+    int min_csmp;
+    int av_max_csmp;
+    int av_max_prod;
+    int av_exptd_prod;
     double min_prod_price;
     double price_adjust;
     int prdr_sample_size;
