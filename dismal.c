@@ -144,7 +144,11 @@ void print_array(char* label, int* array, int num) {
     printf("\n");
 }
 
+#ifdef __APPLE__
+CREATE_TIMER(MAIN_TIMER, 0);
+#else
 CREATE_TIMER(MAIN_TIMER);
+#endif
 
 int main(int argc, char** argv) {
     printf("DISMAL ECONOMIC MODEL (Version %.2f) compiled %s\n", 

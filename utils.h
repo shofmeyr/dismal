@@ -7,7 +7,11 @@
 #define MAX_TIMERS 20
 char* _timer_names[MAX_TIMERS];
 
+#ifdef __APPLE__
+#define CREATE_TIMER(t, index) static int t = index
+#else
 #define CREATE_TIMER(t) static int t = __COUNTER__
+#endif
 
 #define FAIL(fmt, ...)                                                \
   do {printf("%s:%d FAILURE: " fmt, __FILE__, __LINE__, __VA_ARGS__); \

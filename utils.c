@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <sys/syscall.h>
 #include <time.h>
+#include <sys/time.h>
 #include <stdarg.h>
 #include <string.h>
 
@@ -35,10 +36,15 @@ double get_double_rnd(double min, double max) {
 }
 
 double _get_current_time(void) {
-    struct timespec ts;
-    syscall(__NR_clock_gettime, CLOCK_REALTIME, &ts);
-    double t = (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
-    return t;
+	//#ifdef __APPLE__
+	struct timeval tv;
+	gettimeofday(&tv, NULL);
+	return (double)tv.tv_sec + (double)tv.tv_usec * 1e-6;
+	//#else
+	//    struct timespec ts;
+	//    syscall(__NR_clock_gettime, CLOCK_REALTIME, &ts);
+	//    return (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
+	//#endif
 }
 
 void clear_timers() {
