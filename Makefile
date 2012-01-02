@@ -3,7 +3,7 @@
 CC=gcc
 CFLAGS=-DEMPLOY_VERSION=0.1 -std=gnu99 -O3
 #LDFLAGS=-network=smp -pthreads=4 -nolink-cache
-LDFLAGS=-O3
+LDFLAGS=-O3 -lm
 SOURCES=dismal.c cfg.c utils.c
 HEADERS=cfg.h
 OBJECTS=$(SOURCES:.c=.o)

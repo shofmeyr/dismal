@@ -7,29 +7,22 @@
     
     We have a set of n agents, each of which can produce at most max_prod
     units. Each agent also consumes units, for which it pays with money. Each
-    agent starts with start_money, and it can spend it employing others. An
+    agent starts with 1 unit of money, and it can spend it employing others. An
     agent's behavior is circumscribed by how much money it has, and constraints
-    on consumption: an agent will always try to consume at least min_csmp
-    units, and will never consume more than max_csmp units. We always
-    assume that n*max_prod >= n*min_csmp, i.e. there is always
-    enough supply. Furthermore, an agent will not consume more than
-    min_csmp units if it doesn't have enough savings, i.e. if money <=
-    svgs. An agent will spend any amount of money > svgs, but will not
-    spend more than it takes to consume max_consumption units. An agent will
-    only work in an iteration (produce) if it does not have enough money to
-    consume max_csmp units.
+    on consumption: an agent will always try to consume at least min_csmp units,
+    and has an upper spending level, max_spend. We assume that n*max_prod >=
+    n*min_csmp, i.e. there is always enough supply. 
 
     An agent decides what price to set per production unit. Agents will start
     off all with the same price. An agent has a strategy for setting the price
     which is dependent on demand signals. We assume that the agent cannot find
     out about other agent's prices, so the agent simply sets the price based on
-    how well its production units are selling. An agent has an exptd_prod
-    threshold that it regards as a price trigger, i.e. if it produced units <
-    exptd_prod in the previous iteration, it adjusts its price
-    downwards, whereas if produced_units > exptd_prod, it adjusts its
-    price upwards. The size of the adjustment is related to (produced_units -
-    exptd_prod), i.e. the greater the deviation from expectation, the
-    greater the adjustment.
+    how well its production units are selling. An agent compares its most recent
+    production to its historical average, i.e. if it produced units < av prod in
+    the previous iteration, it adjusts its price downwards, whereas if
+    produced_units > av prod, it adjusts its price upwards. The size of the
+    adjustment is related to the size of the mismatch from the historical
+    average.
 
     When an agent consumes, it will do a limited search for the best price,
     i.e. it picks k producers at random, and buys from the cheapest. It may have
@@ -39,8 +32,7 @@
     units from a producer.
 
     If an agent fails to consume min_csmp units, it is below the poverty
-    line. If the average production of an agent falls to zero it is regarded as
-    unemployed.
+    line. 
 
     Extensions:
     ----------
@@ -80,6 +72,8 @@
 
 **/
 
+#include <math.h>
+#include <unistd.h>
 #include <stdlib.h>
 #include "utils.h"
 #include "cfg.h"
@@ -92,20 +86,23 @@ static cfg_t _cfg;
 typedef struct {
     int id;
     // these are all fixed for the life of the agent 
-    double svgs_level;
-    int max_csmp;
-    int exptd_prod;
-    int max_prod;
+    double max_csmp;
+    double max_prod;
+
     // these fluctuate from one round to the next
     double money;
-    int prod;
-    int csmp;
+	// how much money has been gained in this round
+	double money_gained;
+	// how much production is still unsold
+    double unsold_prod;
+    double csmp;
     // total consumption over this agent's lifetime
-    long tot_csmp;
+    double tot_csmp;
     // total production over the lifetime of this agent
-    long tot_prod;
+    double tot_prod;
     double prod_price;
-    double last_price_paid;
+	// how much adjustment will this agent do to correct price issues?
+	double price_adjust;
 } ag_t;
 
 struct {
@@ -170,7 +167,7 @@ int main(int argc, char** argv) {
             "%7s", "av P", "%7s", "mx P", "%7s", "mn P", 
             "%7s", "pvt\n");
 
-	int iter_step = _cfg.num_iters / 50;
+	int iter_step = _cfg.num_iters / 25;
 
     timer_start(MAIN_TIMER);
     for (_iters = 0; _iters < _cfg.num_iters; _iters++) {
@@ -188,6 +185,11 @@ int main(int argc, char** argv) {
             int csmr_i = get_int_rnd(_csmrs.num);
 			int prdr_i = find_cheapest_prdr(csmr_i);
 			if (prdr_i != -1) consume(csmr_i, prdr_i);
+			else {
+				// we could not get a valid prdr, so we check for this agent
+				// being the only one left in both csmrs and prdrs
+				if (_prdrs.num == 1 && _csmrs.num == 1 && _prdrs._[0] == _csmrs._[0]) break;
+			}
         }
 
         // compute new prices
@@ -221,22 +223,22 @@ void init() {
     for(int i = 0; i < _ags.num; i++) {
         ag_t* ag = AG_PTR(i);
         ag->id = i;
-        // note: these could be different for different ags. Initially we
-        // have them all the same. We could randomly vary them too.
-        ag->money = _cfg.av_money_start;
-        ag->svgs_level = _cfg.av_svgs_level;
-        ag->max_csmp = _cfg.av_max_csmp;
-		ag->exptd_prod = _cfg.av_exptd_prod;
+		// this is variable, based on individual choice
+		double min_csmp = _cfg.av_max_csmp * 0.5;
+		if (min_csmp < 1) min_csmp = 1;
+		ag->max_csmp = get_double_rnd(min_csmp, _cfg.av_max_csmp);
+		//ag->max_csmp = _cfg.av_max_csmp;
+		// this is fixed, based on common ability
         ag->max_prod = _cfg.av_max_prod;
-        ag->prod = ag->exptd_prod;
+        ag->unsold_prod = 1.0;
         ag->tot_prod = 0;
         ag->tot_csmp = 0;
+		// always start with 1 money unit
+		ag->money = 1.0;
+		ag->money_gained = 0.0;
 		// start off by charging what we believe to be the minimum
-		ag->prod_price = _cfg.min_prod_price;
-		// start with enough money to buy the minimum consumption * 10
-		//		ag->money = ag->prod_price * 10.0;
-        // assume this starts off as the global average
-        ag->last_price_paid = ag->prod_price;
+		ag->prod_price = ag->money;
+		ag->price_adjust = get_double_rnd(0.001, 0.01);
     }
 }
 
@@ -245,28 +247,28 @@ void update_ag(ag_t* ag) {
     ag->csmp = 0;
     // an agent is always a consumer if it has any money
     if (ag->money > 0) _csmrs._[_csmrs.num++] = ag->id;
-    // An agent is a producer if it doesn't have enough money beyond svgs_level
-    // to buy its max_csmp. To work this out, it uses the price it last
-    // paid for csmp (i.e. in the previous iteration)
-    if (ag->money - ag->svgs_level < ag->last_price_paid * (double)ag->max_csmp) {
-        _prdrs._[_prdrs.num++] = ag->id;
-        // reset production for the new round to the max 
-        ag->prod = ag->max_prod;
-    } else {
-        ag->prod = 0;
-    }
+	// an agent is always a producer
+	_prdrs._[_prdrs.num++] = ag->id;
+	// reset production for the new round to the max 
+	ag->unsold_prod = ag->max_prod;
+	// now we realize our gains
+	ag->money += ag->money_gained;
+	ag->money_gained = 0;
 }
 
 void compute_price(ag_t* ag) {
+	// we use our historical average to determine how to adjust the price
+	double exptd_prod = ag->tot_prod / (_iters + 1);
     // work out price for this producer based on previously expended production
-    double price_change = ((double)ag->exptd_prod - (double)ag->prod) / 
-		(double)ag->max_prod;
-	//    ag->prod_price += (_cfg.price_adjust * price_change);
-	ag->prod_price *= (1.0 + _cfg.price_adjust * price_change);
-    // no agent will drop the price too low
-    if (ag->prod_price < _cfg.min_prod_price) {
-        ag->prod_price = _cfg.min_prod_price;
-    }
+	//	double price_change = get_double_rnd(0, fabs(exptd_prod - ag->unsold_prod) / ag->max_prod) / 100.0;
+	double price_change = get_double_rnd(0, fabs(exptd_prod - ag->unsold_prod) / ag->max_prod) * ag->price_adjust;
+	//	double price_change = fabs(exptd_prod - ag->unsold_prod) / ag->max_prod	* ag->price_adjust;
+	//	double price_change = fabs(exptd_prod - ag->unsold_prod) / ag->max_prod / 100.0;
+	//price_change = ag->price_adjust;
+	if (exptd_prod < ag->unsold_prod) price_change *= -1.0;
+	ag->prod_price *= (1.0 + price_change);
+    // the price should never fall to zero
+    if (ag->prod_price < 0.001) ag->prod_price = 0.001;
 }
 
 int find_cheapest_prdr(int csmr_i) {
@@ -298,70 +300,48 @@ void consume(int csmr_i, int prdr_i) {
     // can't cosume your own production
     if (csmr->id == prdr->id) return;
 
-    DBG(VFLAG_CONSUME_DETAILS, "csmr->id %d, csmr->money %.2f, csmr->csmp %d, "
-        "prdr->id %d, prdr->prod %d\n",
-        csmr->id, csmr->money, csmr->csmp, prdr->id, prdr->prod);
+    DBG(VFLAG_CONSUME_DETAILS, "csmr->id %d, csmr->money %.2f, csmr->csmp %.2f, "
+        "prdr->id %d, prdr->unsold_prod %.2f\n",
+        csmr->id, csmr->money, csmr->csmp, prdr->id, prdr->unsold_prod);
 
-    double csmr_money_avail = csmr->money;
-    int min_csmp = _cfg.min_csmp - csmr->csmp;
-	// this could happen if we have already consumed
-	if (min_csmp < 0) min_csmp = 0;
-    // always try to consume the min
-    double min_spend = (double)min_csmp * prdr->prod_price;
-    if (csmr_money_avail > min_spend) {
-        // always spend at least the min
-        csmr_money_avail = min_spend;
-        if (csmr->money - min_spend > csmr->svgs_level) {
-            // consumer can spend beyond the minimum
-            csmr_money_avail = csmr->money - csmr->svgs_level;
-            // check this should be > min_spend
-            if (csmr_money_avail < min_spend) {
-                FAIL("money avail %.2f < %.2f min which should never happen!\n",
-                     csmr_money_avail, min_spend);
-            }
-            // a consumer will not consume more than the max
-            double max_spend = (double)csmr->max_csmp * prdr->prod_price;
-            if (csmr_money_avail > max_spend) csmr_money_avail = max_spend;
-        }
-    }
+	// how much consumption is left?
+	double csmp = csmr->max_csmp - csmr->csmp;
+	// how much will it cost?
+	double csmp_cost = csmp * prdr->prod_price;
+	if (csmp_cost > csmr->money) csmp = csmr->money / prdr->prod_price;
+	// limited by what the producer has to sell
+	if (prdr->unsold_prod < csmp) csmp = prdr->unsold_prod;
 
-	// not enough money to buy at least one unit, remove from consumers list
-	if (csmr_money_avail < prdr->prod_price) {
-        _csmrs._[csmr_i] = _csmrs._[--_csmrs.num];
-		return;
+	// now goods change hands
+    prdr->unsold_prod -= csmp;
+	// deal with round off errors
+	if (prdr->unsold_prod < 0.000001) prdr->unsold_prod = 0;
+    prdr->tot_prod += csmp;
+	csmp_cost = csmp * prdr->prod_price;
+	if (csmr->money - csmp_cost < -0.00001) {
+		FAIL("csmr %d has less money %.2f than what is needed for consumption %.2f\n",
+			 csmr->id, csmr->money, csmp_cost);
 	}
+    prdr->money_gained += csmp_cost;
+    csmr->money -= csmp_cost;
+	// deal with round off errors
+	if (csmr->money < 0.000001) csmr->money = 0;
+    csmr->csmp += csmp;
+    csmr->tot_csmp += csmp;
 
-    // now with the money avail, buy the max production avail
-    int prod_buy = csmr_money_avail / prdr->prod_price;
-    if (prod_buy > prdr->prod) prod_buy = prdr->prod;
-    double money_paid = (double)prod_buy * prdr->prod_price;
+    DBG(VFLAG_CONSUME, "csmr %d, prdr %d, units %.2f, price %.2f\n", 
+        csmr->id, prdr->id, csmp, csmp_cost);
 
-    DBG(VFLAG_CONSUME_DETAILS, "min_spend %.2f, prdr price %.2f, avail money %.2f, "
-        "prod_buy %d, money_paid %.2f\n", 
-        min_spend, prdr->prod_price, csmr_money_avail, prod_buy, money_paid);
-
-    prdr->prod -= prod_buy;
-    prdr->tot_prod += prod_buy;
-    prdr->money += money_paid;
-    csmr->money -= money_paid;
-    csmr->csmp += prod_buy;
-    csmr->tot_csmp += prod_buy;
-    csmr->last_price_paid = prdr->prod_price;
-    if (prdr->prod == 0) {
+    if (prdr->unsold_prod == 0) {
         // remove from list of producers
         _prdrs._[prdr_i] = _prdrs._[--_prdrs.num];
+		DBG(VFLAG_CONSUME_DETAILS, "remove prdr %d\n", prdr->id);
     }
-    if (csmr->csmp >= csmr->max_csmp || csmr->money == 0 || 
-        (csmr->csmp >= _cfg.min_csmp && csmr->money <= csmr->svgs_level)) {
+    if (csmr->money == 0 || csmr->csmp >= csmr->max_csmp) {
         // remove from list of consumers
         _csmrs._[csmr_i] = _csmrs._[--_csmrs.num];
-    }
-    
-    DBG(VFLAG_CONSUME_DETAILS, "csmr money %.2f, csmr csmp %d, prdr prod %d\n",
-        csmr->money, csmr->csmp, prdr->prod);
-
-    DBG(VFLAG_CONSUME, "csmr %d, prdr %d, units %d, price %.2f\n", 
-        csmr->id, prdr->id, prod_buy, money_paid);
+		DBG(VFLAG_CONSUME_DETAILS, "remove csmr %d\n", csmr->id);
+	} 
 }
 
 void set_av_max_min(double val, double *av, double *mx, double *mn) {
@@ -393,15 +373,21 @@ void compute_stats(int t, int show_what) {
     
     for (int i = 0; i < _ags.num; i++) {
         ag_t* ag = AG_PTR(i);
-        set_av_max_min(ag->money, &av_money, &max_money, &min_money);
+        set_av_max_min(ag->money + ag->money_gained, &av_money, &max_money, 
+					   &min_money);
         set_av_max_min(ag->csmp, &av_csmp, &max_csmp, &min_csmp);
-        set_av_max_min(ag->prod, &av_prod, &max_prod, &min_prod);
-        set_av_max_min(ag->last_price_paid, &av_price, &max_price, &min_price);
-        set_av_max_min((double)ag->tot_csmp / t, &av_tot_csmp, 
+        set_av_max_min(ag->max_prod - ag->unsold_prod, 
+					   &av_prod, &max_prod, &min_prod);
+        set_av_max_min(ag->prod_price, &av_price, &max_price, &min_price);
+        set_av_max_min(ag->tot_csmp / t, &av_tot_csmp, 
                        &av_max_csmp, &av_min_csmp);
-        set_av_max_min((double)ag->tot_prod / t, &av_tot_prod, 
+        set_av_max_min(ag->tot_prod / t, &av_tot_prod, 
                        &av_max_prod, &av_min_prod);
-        if (ag->csmp < _cfg.min_csmp) num_in_poverty++;
+		if (show_what == SHOW_LIFETIME) {
+			if (ag->tot_csmp / t < 1.0) num_in_poverty++;
+		} else {
+			if (ag->csmp < 1.0) num_in_poverty++;
+		}
     }
 
     av_money /= (double)_ags.num;
@@ -415,16 +401,16 @@ void compute_stats(int t, int show_what) {
 		printf(" LIFETIME\n");
 		mprintf(14, "%8d", t, 
 				"%7.2f", av_money, "%7.2f", max_money, "%7.2f", min_money,
-				"%7.2f", av_price, "%7.2f", max_price, "%7.2f", min_price,
+				"%7.3f", av_price, "%7.2f", max_price, "%7.2f", min_price,
 				"%7.2f", av_tot_csmp, "%7.2f", av_max_csmp, "%7.2f", av_min_csmp, 
 				"%7.2f", av_tot_prod, "%7.2f", av_max_prod, "%7.2f", av_min_prod, 
 				"%7.1f\n", (double)num_in_poverty * 100.0 / (double)_ags.num);
 	} else {
 		mprintf(14, "%8d", t, 
-				"%7.2f", av_money, "%7.2f", max_money, "%7.2f", min_money,
-				"%7.2f", av_price, "%7.2f", max_price, "%7.2f", min_price,
-				"%7.2f", av_csmp, "%7.2f", max_csmp, "%7.2f", min_csmp, 
-				"%7.2f", av_prod, "%7.2f", max_prod, "%7.2f", min_prod, 
+				"%7.2f", av_money, "%7.2f", max_money, "%7.3f", min_money,
+				"%7.3f", av_price, "%7.3f", max_price, "%7.3f", min_price,
+				"%7.3f", av_csmp, "%7.3f", max_csmp, "%7.3f", min_csmp, 
+				"%7.3f", av_prod, "%7.3f", max_prod, "%7.3f", min_prod, 
 				"%7.1f\n", (double)num_in_poverty * 100.0 / (double)_ags.num);
 	}
 }
@@ -443,9 +429,8 @@ void print_ags(void) {
 }
 
 void print_ag(ag_t* ag) {
-    mprintf(8, "%4d", ag->id, "%8.2f", ag->money, "%8d", ag->prod, "%8d", 
-            ag->csmp, "%8.2f", ag->prod_price, "%8.2f", ag->last_price_paid,
-            "%8.2f", ag->tot_csmp / (_iters + 1), 
+    mprintf(8, "%4d", ag->id, "%8.2f", ag->money, "%8.2f", ag->unsold_prod, "%8.2f", 
+            ag->csmp, "%8.2f", ag->prod_price, "%8.2f", ag->tot_csmp / (_iters + 1), 
             "%8.2f\n", ag->tot_prod / (_iters + 1));
 }
         

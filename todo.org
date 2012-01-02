@@ -1,4 +1,9 @@
-* Distributions of params
-- for each agent, instead of having its params be fixed and equal to the
-  configuration params, make them random with average equal to the cfg param. 
-- agents with savings lend to other agents at some interest rate.
+- compute distribution of wealth
+- agents with savings lend to other agents at interest. This may support the
+  rich get richer. Currently, no one has a sustained wealth advantage because
+  of the way prices adjust. Banking may change that and give rise to more
+  permanent wealth.
+- taxes
+- enable different agents to have different strategies for pricing: each agent
+  has two params, one indicating how much it will adjust its prices by, and the
+  other indicating how frequently it is willing to adjust its prices.

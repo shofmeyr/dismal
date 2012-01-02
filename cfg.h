@@ -38,14 +38,8 @@ typedef struct {
 	int rseed;
     int num_iters;
     int num_ags;
-    double av_money_start;
-    double av_svgs_level;
-    int min_csmp;
-    int av_max_csmp;
-    int av_max_prod;
-    int av_exptd_prod;
-    double min_prod_price;
-    double price_adjust;
+    double av_max_csmp;
+    double av_max_prod;
     int prdr_sample_size;
     int verbose_flags;    
 } cfg_t;
