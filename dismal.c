@@ -238,7 +238,7 @@ void init() {
 		ag->money_gained = 0.0;
 		// start off by charging what we believe to be the minimum
 		ag->prod_price = ag->money;
-		ag->price_adjust = get_double_rnd(0.001, 0.01);
+		ag->price_adjust = 0.001;//get_double_rnd(0.001, 0.01);
     }
 }
 
@@ -266,9 +266,10 @@ void compute_price(ag_t* ag) {
 	//	double price_change = fabs(exptd_prod - ag->unsold_prod) / ag->max_prod / 100.0;
 	//price_change = ag->price_adjust;
 	if (exptd_prod < ag->unsold_prod) price_change *= -1.0;
-	ag->prod_price *= (1.0 + price_change);
+	ag->prod_price += price_change;
     // the price should never fall to zero
-    if (ag->prod_price < 0.001) ag->prod_price = 0.001;
+	double min_price = 0.00001;
+    if (ag->prod_price < min_price) ag->prod_price = min_price;
 }
 
 int find_cheapest_prdr(int csmr_i) {
